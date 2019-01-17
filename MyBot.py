@@ -43,11 +43,34 @@ while True:
     for ship in me.get_ships():
         #logging.info("Ship {} has {} halite.".format(ship.id, ship.halite_amount))
         #command_queue.append(ship.make_dropoff()) # Creates dropoff building
-        #TODO: In end game, crash ships.
 
         if ship.halite_amount < game_map[ship.position].halite_amount / 10: # Can't afford to move off tile.
             command_queue.append(ship.stay_still())
             continue
+
+        ### Game ending, call all ships home ###
+        turns_remaining = (constants.MAX_TURNS - game.turn_number)
+        if turns_remaining < constants.WIDTH * 1.5: # Allow some buffer time to get home.
+            # TODO: find nearest dropoff rather than only using shipyard.
+            if turns_remaining > game_map.calculate_distance(ship.position, me.shipyard.position) * 1.5:
+                pass # close to hom, work a bit longer
+            else:
+                ship_status[ship.id] = "returning"
+                ### Wait on shipyard, allow destruction ###
+                if ship.position == me.shipyard.position:
+                    command_queue.append(ship.stay_still())
+                    continue
+                ### Force move when next to shipyard ###
+                elif game_map.calculate_distance(ship.position, me.shipyard.position) == 1:
+                    move = game_map.get_unsafe_moves(ship.position, me.shipyard.position)[0]
+                    #move = ship.position.directional_offset(desired_direction)
+                    command_queue.append(ship.move(move))
+                    continue
+                ### Naive move toward shipyard ###
+                else:
+                    move = game_map.naive_navigate(ship, me.shipyard.position)
+                    command_queue.append(ship.move(move))
+                    continue
 
         # Check if enemy ship is close
             # Compare halite cargo, if theirs is higher:
