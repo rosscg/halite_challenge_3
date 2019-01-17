@@ -63,8 +63,19 @@ while True:
 
         ### Dockblock mission: ###
         if ship_status[ship.id] == "dockblock":
-            move = game_map.naive_navigate(ship, dockblock_coords)
-            command_queue.append(ship.move(move))
+            desired_direction = game_map.naive_navigate(ship, dockblock_coords)
+            desired_pos = ship.position.directional_offset(desired_direction)
+            # Check if desired_pos is threatened
+            be_still = False
+            for position in desired_pos.get_surrounding_cardinals():
+                cell = game_map[position]
+                if cell.is_occupied and cell.position != ship.position:
+                    command_queue.append(ship.stay_still()) # Wait for cell to clear.
+                    be_still = True
+                    continue
+            if not be_still:
+                command_queue.append(ship.move(desired_direction))
+            continue
 
         ### Holding too much, return to nearest dropoff: ###
         elif ship_status[ship.id] == "returning" or ship.halite_amount >= constants.MAX_HALITE / 4*3: # Holding too much, return
