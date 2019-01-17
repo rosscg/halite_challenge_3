@@ -21,6 +21,8 @@ import logging
 game = hlt.Game()
 ship_status = {}
 
+FULL_HOLD_PROPORTION = .95 # proportion of hold to fill before coming home
+
 # Sends one ship to block enemy home port in 2p game. Only effective on rudimentary bots using naive move.
 dockblock_coords = False
 for player_id, player in game.players.items():
@@ -101,7 +103,7 @@ while True:
             continue
 
         ### Holding too much, return to nearest dropoff: ###
-        elif ship_status[ship.id] == "returning" or ship.halite_amount >= constants.MAX_HALITE / 4*3: # Holding too much, return
+        elif ship_status[ship.id] == "returning" or ship.halite_amount >= constants.MAX_HALITE * FULL_HOLD_PROPORTION: # Holding too much, return
             ship_status[ship.id] = "returning"
             ### Get closest dropoff position: ###
             closest_dropoff = me.shipyard.position
@@ -128,11 +130,11 @@ while True:
                 # Find neighbouring cell with highest halite, otherwise random.
                 highest_halite = 0
                 target_cell = ship.position.directional_offset(random.choice([ Direction.North, Direction.South, Direction.East, Direction.West ]))
-                for cell in ship.position.get_surrounding_cardinals(): # return a list of the positions of each cardinal direction from the given position.
-                    present_halite = game_map[cell].halite_amount # return the halite at a given map location.
-                    if present_halite > highest_halite:
+                for cell_pos in ship.position.get_surrounding_cardinals(): # return a list of the positions of each cardinal direction from the given position.
+                    present_halite = game_map[cell_pos].halite_amount # return the halite at a given map location.
+                    if present_halite > highest_halite and me.has_ship(game_map[cell_pos].ship) == False: # TODO: Update to planned moves later.
                         highest_halite = present_halite
-                        target_cell = cell
+                        target_cell = cell_pos
 
                 move = game_map.naive_navigate(ship, target_cell)
                 command_queue.append(ship.move(move))
