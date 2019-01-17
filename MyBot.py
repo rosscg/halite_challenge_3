@@ -72,13 +72,14 @@ while True:
                 if cell.is_occupied and cell.position != ship.position:
                     command_queue.append(ship.stay_still()) # Wait for cell to clear.
                     be_still = True
-                    continue
+                    break
             if not be_still:
                 command_queue.append(ship.move(desired_direction))
             continue
 
         ### Holding too much, return to nearest dropoff: ###
         elif ship_status[ship.id] == "returning" or ship.halite_amount >= constants.MAX_HALITE / 4*3: # Holding too much, return
+            ship_status[ship.id] = "returning"
             ### Get closest dropoff position: ###
             closest_dropoff = me.shipyard.position
             closest_dropoff_dist = game_map.calculate_distance(ship.position, me.shipyard.position)
@@ -93,7 +94,6 @@ while True:
             else:
                 move = game_map.naive_navigate(ship, closest_dropoff)
                 command_queue.append(ship.move(move))
-                ship_status[ship.id] = "returning"
                 continue
 
         ### Send ship exploring/harvesting: ###
