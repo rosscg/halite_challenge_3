@@ -22,6 +22,7 @@ game = hlt.Game()
 ship_status = {}
 
 FULL_HOLD_PROPORTION = .95 # proportion of hold to fill before coming home
+HOMETIME_TRAVEL_BUFFER = 1.8
 
 # Sends one ship to block enemy home port in 2p game. Only effective on rudimentary bots using naive move.
 dockblock_coords = False
@@ -52,10 +53,10 @@ while True:
 
         ### Game ending, call all ships home ###
         turns_remaining = (constants.MAX_TURNS - game.turn_number)
-        if turns_remaining < constants.WIDTH * 1.5: # Allow some buffer time to get home.
+        if turns_remaining < constants.WIDTH * HOMETIME_TRAVEL_BUFFER: # Allow some buffer time to get home.
             # TODO: find nearest dropoff rather than only using shipyard.
-            if turns_remaining > game_map.calculate_distance(ship.position, me.shipyard.position) * 1.5:
-                pass # close to hom, work a bit longer
+            if turns_remaining > game_map.calculate_distance(ship.position, me.shipyard.position) * HOMETIME_TRAVEL_BUFFER and turns_remaining > len(me.get_ships()):
+                pass # close to home, work a bit longer
             else:
                 ship_status[ship.id] = "returning"
                 ### Wait on shipyard, allow destruction ###
@@ -127,12 +128,19 @@ while True:
             if game_map[ship.position].halite_amount < constants.MAX_HALITE / 10:
                 #target_cell = ship.position.directional_offset(random.choice([ Direction.North, Direction.South, Direction.East, Direction.West ]))
 
+                #TODO: Check if neighbouring cell has Halite over 10%, otherwise harvest:
+
                 # Find neighbouring cell with highest halite, otherwise random.
                 highest_halite = 0
                 target_cell = ship.position.directional_offset(random.choice([ Direction.North, Direction.South, Direction.East, Direction.West ]))
                 for cell_pos in ship.position.get_surrounding_cardinals(): # return a list of the positions of each cardinal direction from the given position.
                     present_halite = game_map[cell_pos].halite_amount # return the halite at a given map location.
-                    if present_halite > highest_halite and me.has_ship(game_map[cell_pos].ship) == False: # TODO: Update to planned moves later.
+                    try:
+                        ship_id = game_map[cell_pos].ship.id # Ship detected on cell
+                    except:
+                        ship_id = -1
+                    friendly_occupier = me.has_ship(ship_id)
+                    if present_halite > highest_halite and me.has_ship(ship_id) == False: # TODO: Update to planned moves later.
                         highest_halite = present_halite
                         target_cell = cell_pos
 
