@@ -55,12 +55,15 @@ def safe_move(ship, destination):
         #logging.info("Can't move where I want. Going elsewhere.")
         try:
             pos = random.choice([pos_item for pos_item in ship.position.get_surrounding_cardinals() if pos_item not in next_turn_positions])
-            move = game_map.naive_navigate(ship, pos)
-            next_turn_positions.append(ship.position.directional_offset(move))
+            #pos = [pos_item for pos_item in ship.position.get_surrounding_cardinals() if pos_item not in next_turn_positions][0]
+            move = game_map.get_unsafe_moves(ship.position, pos)[0]
+            next_turn_positions.append(ship.position.directional_offset(move)) # Using directional_offset instead of pos variable to avoid random reseed
+            #next_turn_positions.append(pos) # Using directional_offset instead of pos variable to avoid random reseed
             command_queue.append(ship.move(move))
             logging.info("Can't Move as desired to {}: Random position found instead: {}.".format(destination, ship.position.directional_offset(move)))
             return
-        except:     # No surrounding positions free
+        except Exception as e:     # No surrounding positions free
+            logging.info("ERROR: {}".format(e))
             logging.info("No free positions, sitting still and hoping not to die")
             next_turn_positions.append(ship.position)
             command_queue.append(ship.stay_still())
@@ -109,9 +112,9 @@ while True:
 
 
     ############################################
-    ########## High Priority Commands ##########
+    ########## High Initial Commands ###########
     ############################################
-    logging.info('Running high priority ship commands')
+    logging.info('RUNNING INITIAL SHIP COMMANDS')
     for ship in me.get_ships():
         ### Assign job to new ship: ###
         if ship.id not in ship_status:
@@ -120,7 +123,7 @@ while True:
             else:
                 ship_status[ship.id] = "exploring"
 
-        logging.info("1st Loop: Ship: {} at {} has job: {}. Cargo: {}, Cell Halite: {}".format(ship.id,
+        logging.info("1ST LOOP: Ship: {} at {} has job: {}. Cargo: {}, Cell Halite: {}".format(ship.id,
             ship.position, ship_status[ship.id], ship.halite_amount, game_map[ship.position].halite_amount))
 
         sufficient_fuel = ship.halite_amount >= game_map[ship.position].halite_amount / 10
@@ -131,12 +134,23 @@ while True:
             command_queue.append(ship.stay_still())
             continue
 
+    ############################################
+    ########## High Priority Commands ##########
+    ############################################
+    logging.info('RUNNING HIGH PRIORITY SHIP COMMANDS')
+    for ship in me.get_ships():
+
+        sufficient_fuel = ship.halite_amount >= game_map[ship.position].halite_amount / 10
+        if not sufficient_fuel: # Already harvesting
+            continue
+
         ### Game ending soon, call all ships home ###
         turns_remaining = (constants.MAX_TURNS - game.turn_number)
         if turns_remaining < constants.WIDTH/2 * HOMETIME_TRAVEL_BUFFER: # Allow some buffer time to get home.
             logging.info("Hometime!")
             dropoff_position = get_nearest_dropoff_position(ship, me)
             if turns_remaining > game_map.calculate_distance(ship.position, dropoff_position) * HOMETIME_TRAVEL_BUFFER:# and turns_remaining > len(me.get_ships()):
+                ship_status[ship.id] = "exploring"
                 pass # close enough to home, work a bit longer
             else:
                 ship_status[ship.id] = "going_to_bed"
@@ -175,10 +189,10 @@ while True:
     ############################################
     ########## Low Priority Commands ###########
     ############################################
-    logging.info('Running low priority ship commands')
+    logging.info('RUNNING LOW PRIORITY SHIP COMMANDS')
     #TODO: Consider sorting ships by value to prioritise.
     for ship in me.get_ships():
-        logging.info("2nd Loop: Ship: {} at {} has job: {}. Cargo: {}, Cell Halite: {}".format(ship.id,
+        logging.info("2ND LOOP: Ship: {} at {} has job: {}. Cargo: {}, Cell Halite: {}".format(ship.id,
             ship.position, ship_status[ship.id], ship.halite_amount, game_map[ship.position].halite_amount))
 
         # Check if enemy ship is close
