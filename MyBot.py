@@ -123,7 +123,7 @@ while True:
     for ship in me.get_ships():
         ### Assign job to new ship: ###
         if ship.id not in ship_status:
-            if DOCKBLOCK_STRAT and game.turn_number <= 5 and "dockblock" not in ship_status.values():
+            if DOCKBLOCK_STRAT and game.turn_number <= 5 and len(game.players) == 2 and "dockblock" not in ship_status.values():
                 ship_status[ship.id] = "dockblock"
             else:
                 ship_status[ship.id] = "exploring"
@@ -133,9 +133,10 @@ while True:
 
         # Identify ships dead in the water, add to next_turn_positions before other commands.
         sufficient_fuel = ship.halite_amount >= game_map[ship.position].halite_amount / 10
-        if not sufficient_fuel and not ship_status[ship.id] == "dockblock": # Can't afford to move off tile.
+        if not sufficient_fuel: # Can't afford to move off tile.
             logging.info("Out of fuel, harvesting.")
-            ship_status[ship.id] = "harvesting"
+            if not ship_status[ship.id] == "dockblock":
+                ship_status[ship.id] = "harvesting"
             next_turn_positions.append(ship.position)
             command_queue.append(ship.stay_still())
             continue
@@ -181,7 +182,7 @@ while True:
 
         ### Explorer harvests instead of moving ###
         if ship_status[ship.id] == "exploring" or (ship_status[ship.id] == "harvesting" and sufficient_fuel):
-            if ship.halite_amount >= constants.MAX_HALITE * FULL_HOLD_PROPORTION and game_map[ship.position].halite_amount < 500: # Holding too much, return
+            if ship.halite_amount >= constants.MAX_HALITE * FULL_HOLD_PROPORTION and (game_map[ship.position].halite_amount < 500 or ship.halite_amount >= constants.MAX_HALITE *.95): # Holding too much, return
                 ship_status[ship.id] = "returning"
                 logging.info("Changing job to returning")
                 continue
@@ -207,34 +208,36 @@ while True:
         ### Dockblock mission: ###
         #TODO: needs testing
         if ship_status[ship.id] == "dockblock":
-            dockblock_coords = False
-            for player_id, player in game.players.items():
-                if player_id != game.my_id and len(game.players) == 2:
-                    dockblock_coords = player.shipyard.position
-                    try:
-                        desired_direction = game_map.get_unsafe_moves(ship.position, dockblock_coords)[0]
-                    except: # Arrived at dock
-                        next_turn_positions.append(ship.position)
-                        continue
-                    desired_pos = ship.position.directional_offset(desired_direction)
-                    # Check if desired_pos is threatened, checking this can neuter the bot so consider risking it.
-                    be_still = False
-                    sufficient_fuel = ship.halite_amount >= game_map[ship.position].halite_amount / 10
-                    if not sufficient_fuel or (game_map[desired_pos].is_occupied and me.has_ship(game_map[desired_pos].ship.id) == False):
-                        next_turn_positions.append(ship.position)
-                        command_queue.append(ship.stay_still()) # Wait for cell to clear.
-                        continue
-                    for position in desired_pos.get_surrounding_cardinals():
-                        cell = game_map[position]
-                        if (cell.is_occupied and me.has_ship(cell.ship.id) == False): #cell.position != ship.position: # Enemy ship detected
-                            next_turn_positions.append(ship.position)
-                            command_queue.append(ship.stay_still()) # Wait for cell to clear.
-                            be_still = True
-                            break
-                    if not be_still:
-                        next_turn_positions.append(desired_pos)
-                        command_queue.append(ship.move(desired_direction))
-                    continue
+            if ship.halite_amount < game_map[ship.position].halite_amount / 10: # Already harvesting fuel
+                continue
+            #for player_id, player in game.players.items():
+            #    if player_id != game.my_id:
+            #        dockblock_coords = player.shipyard.position
+            dockblock_coords = [player.shipyard.position for player_id, player in game.players.items() if player_id != game.my_id][0]
+            try:
+                desired_direction = game_map.get_unsafe_moves(ship.position, dockblock_coords)[0]
+            except: # Arrived at dock
+                next_turn_positions.append(ship.position)
+                continue
+            desired_pos = ship.position.directional_offset(desired_direction)
+            # Check if desired_pos is threatened, checking this can neuter the bot so consider risking it.
+            be_still = False
+            #sufficient_fuel = ship.halite_amount >= game_map[ship.position].halite_amount / 10
+            if (game_map[desired_pos].is_occupied and me.has_ship(game_map[desired_pos].ship.id) == False):
+                next_turn_positions.append(ship.position)
+                command_queue.append(ship.stay_still()) # Wait for cell to clear.
+                continue
+            for position in desired_pos.get_surrounding_cardinals():
+                cell = game_map[position]
+                if (cell.is_occupied and me.has_ship(cell.ship.id) == False): #cell.position != ship.position: # Enemy ship detected
+                    next_turn_positions.append(ship.position)
+                    command_queue.append(ship.stay_still()) # Wait for cell to clear.
+                    be_still = True
+                    break
+            if not be_still:
+                next_turn_positions.append(desired_pos)
+                command_queue.append(ship.move(desired_direction))
+            continue
 
         ### Holding too much, return to nearest dropoff: ###
         #TODO: consider returning early if waiting to buy new ships and need cash
