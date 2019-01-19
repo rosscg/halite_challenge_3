@@ -27,7 +27,7 @@ import random
 import logging
 
 FULL_HOLD_PROPORTION = .75 # proportion of hold to fill before coming home
-HOMETIME_TRAVEL_BUFFER = 2.5
+HOMETIME_TRAVEL_BUFFER = 1.5
 MIN_HALITE_IGNORED = 50 #constants.MAX_HALITE / 10
 MAX_SHIPS = 16 # Stop building ships. This should realistically be adjusted based on map size or map value.
 DOCKBLOCK_STRAT = False # Sends one ship to block enemy home port in 2p game. Only effective on rudimentary bots using naive move.
@@ -188,24 +188,24 @@ while True:
         if turns_remaining < constants.WIDTH/2 * HOMETIME_TRAVEL_BUFFER: # Allow some buffer time to get home.
             logging.info("Hometime!")
             dropoff_position = get_nearest_dropoff_position(ship, me)
-            if turns_remaining > game_map.calculate_distance(ship.position, dropoff_position) * HOMETIME_TRAVEL_BUFFER:# and turns_remaining > len(me.get_ships()):
-                ship_status[ship.id] = "exploring"
-                pass # close enough to home, work a bit longer
+            #if turns_remaining > game_map.calculate_distance(ship.position, dropoff_position) * HOMETIME_TRAVEL_BUFFER:# and turns_remaining > len(me.get_ships()):
+            #    ship_status[ship.id] = "exploring"
+            #    pass # close enough to home, work a bit longer
+            #else:
+            ship_status[ship.id] = "going_to_bed"
+            ### Wait on shipyard, allow destruction ###
+            if ship.position == dropoff_position:
+                command_queue.append(ship.stay_still())
+                continue
+            ### Force move when next to shipyard, kill layabouts ###
+            elif game_map.calculate_distance(ship.position, dropoff_position) == 1:
+                move = random.choice(game_map.get_unsafe_moves(ship.position, dropoff_position))
+                command_queue.append(ship.move(move))
+                continue
+            ### Safe move toward shipyard ###
             else:
-                ship_status[ship.id] = "going_to_bed"
-                ### Wait on shipyard, allow destruction ###
-                if ship.position == dropoff_position:
-                    command_queue.append(ship.stay_still())
-                    continue
-                ### Force move when next to shipyard, kill layabouts ###
-                elif game_map.calculate_distance(ship.position, dropoff_position) == 1:
-                    move = random.choice(game_map.get_unsafe_moves(ship.position, dropoff_position))
-                    command_queue.append(ship.move(move))
-                    continue
-                ### Safe move toward shipyard ###
-                else:
-                    safe_move(ship, dropoff_position)
-                    continue
+                safe_move(ship, dropoff_position)
+                continue
 
         ### Explorer harvests instead of moving ###
         if current_ship_count == 1 or current_ship_count > 6 or game.turn_number > (constants.MAX_TURNS*.5):
