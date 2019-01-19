@@ -144,10 +144,10 @@ while True:
 
     # Remove dead ships from dictionary
     r = dict(ship_status)
-    for key in ship_status:
-        if key not in [ x.id for x in me.get_ships() ]:
-            del r[key]
-            # TODO: remove from destination_list
+    for ship_key in ship_status:
+        if ship_key not in [ x.id for x in me.get_ships() ]:
+            del r[ship_key]
+            next_turn_positions.pop(ship_key, None) #TODO: test
     ship_status = dict(r)
     logging.info(ship_status)
 
@@ -240,10 +240,10 @@ while True:
                 safe_move(ship, dropoff_position)
                 continue
 
-        #if ship_status[ship.id] == "returning" and game_map[ship.position].halite_amount > MIN_HALITE_IGNORED and game_map[ship.position].halite_amount / 20 < constants.MAX_HALITE - ship.halite_amount:
-        #    logging.info("Harvesting on way home.")
-        #    safe_move(ship, ship.position) # Harvest
-        #    continue
+        if ship_status[ship.id] == "returning" and game_map[ship.position].halite_amount > MIN_HALITE_IGNORED and game_map[ship.position].halite_amount / 20 < constants.MAX_HALITE - ship.halite_amount:
+            logging.info("Harvesting on way home.")
+            safe_move(ship, ship.position) # Harvest
+            continue
 
         ### Explorer harvests instead of moving ###
         if current_ship_count == 1 or current_ship_count > 6 or game.turn_number > (constants.MAX_TURNS*.5):
@@ -318,8 +318,8 @@ while True:
         ### Holding too much, return to nearest dropoff: ###
         #TODO: consider returning early if waiting to buy new ships and need cash
         elif ship_status[ship.id] == "returning": # Holding too much, return
-        #    if game_map[ship.position].halite_amount > MIN_HALITE_IGNORED and game_map[ship.position].halite_amount / 20 < constants.MAX_HALITE - ship.halite_amount:
-        #        continue # Already given commend in previous loop.
+            if game_map[ship.position].halite_amount > MIN_HALITE_IGNORED and game_map[ship.position].halite_amount / 20 < constants.MAX_HALITE - ship.halite_amount:
+                continue # Already given commend in previous loop.
             dropoff_position = get_nearest_dropoff_position(ship, me)
             if ship.position == dropoff_position: # Arrived home, send back out exploring
                 logging.info("Dropped off load at shipyard last turn, go out and explore!")
