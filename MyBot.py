@@ -3,7 +3,6 @@
 
 #TODO:
 # Watch enemy ships, evaluate and decide to hit.
-# Expand search radius of bot to 3x3 or 5x5
 # Give bots a general direction to go if nothing good nearby
 # Judge value of harvest x2 vs move and harvest before moving.
 # Evaluate board state and E(R) of bot when spawning new ship
@@ -20,7 +19,7 @@ import hlt
 from hlt import constants
 
 # This library contains direction metadata to better interface with the game.
-from hlt.positionals import Direction
+from hlt.positionals import Direction, Position
 import random
 
 # Logging allows you to save messages for yourself. This is required because the regular STDOUT
@@ -28,15 +27,36 @@ import random
 import logging
 
 FULL_HOLD_PROPORTION = .75 # proportion of hold to fill before coming home
-HOMETIME_TRAVEL_BUFFER = 2
-MIN_HALITE_IGNORED = 100 #constants.MAX_HALITE / 10
-DOCKBLOCK_STRAT = True # Sends one ship to block enemy home port in 2p game. Only effective on rudimentary bots using naive move.
+HOMETIME_TRAVEL_BUFFER = 2.5
+MIN_HALITE_IGNORED = 50 #constants.MAX_HALITE / 10
+MAX_SHIPS = 16 # Stop building ships. This should realistically be adjusted based on map size or map value.
+DOCKBLOCK_STRAT = False # Sends one ship to block enemy home port in 2p game. Only effective on rudimentary bots using naive move.
 
 """ <<<Game Begin>>> """
 # This game object contains the initial game state.
 game = hlt.Game()
 ship_status = {}
+destination_list = {}
 next_turn_positions = []
+
+
+def scan_radius(ship, scan_range):
+    # TODO test whether this needs to be normalised?
+    xrange = range(ship.position.x - scan_range, ship.position.x + scan_range + 1)
+    yrange = range(ship.position.y - scan_range, ship.position.y + scan_range + 1)
+    #xrange = range(me.shipyard.position.x - scan_range, me.shipyard.position.x + scan_range + 1)
+    #yrange = range(me.shipyard.position.y - scan_range, me.shipyard.position.y + scan_range + 1)
+    #logging.info("Scanning range: {}-{},{}-{}".format(ship.position.x - scan_range, ship.position.x - scan_range + 1, ship.position.y - scan_range, ship.position.y - scan_range + 1))
+    highest_halite = MIN_HALITE_IGNORED*4
+    candidate_cell = None
+    for x in xrange:    # TODO: consider doing this once a turn and ordering, then take first in list and pop.
+        for y in yrange:
+            cell = game_map[Position(x,y)]
+            if cell.halite_amount > highest_halite and cell.position not in destination_list:
+                candidate_cell = cell.position
+                highest_halite = cell.halite_amount
+    return candidate_cell
+
 
 def get_nearest_dropoff_position(ship, me):
     closest_dropoff = me.shipyard.position
@@ -80,7 +100,7 @@ def safe_move(ship, destination):
             command_queue.append(ship.stay_still())
             return
 
-game.ready("TestBot")
+game.ready("MyBot")
 logging.info("Successfully created bot! My Player ID is {}.".format(game.my_id))
 
 ############################################
@@ -101,6 +121,7 @@ while True:
     for key in ship_status:
         if key not in [ x.id for x in me.get_ships() ]:
             del r[key]
+            # TODO: remove from destination_list
     ship_status = dict(r)
     logging.info(ship_status)
 
@@ -109,7 +130,13 @@ while True:
     ############ Shipyard Commands #############
     ############################################
     # TODO: Calculate board value when deciding whether to spawn a ship (calc their expected return)
-    if game.turn_number <= (constants.MAX_TURNS*.5) and me.halite_amount >= constants.SHIP_COST:
+    current_ship_count = len(me.get_ships()) #TODO: If this is used, need to adjust test to account for map size/value
+
+    #ship_income_per_turn =  0# TODO: Work this out!
+    #expected_ship_value = (constants.MAX_TURNS-game.turn_number) * ship_income_per_turn
+    #if expected_ship_value > constants.SHIP_COST and me.halite_amount >= constants.SHIP_COST:
+
+    if game.turn_number <= (constants.MAX_TURNS*.5) and me.halite_amount >= constants.SHIP_COST and current_ship_count < MAX_SHIPS:
         if me.shipyard.position not in next_turn_positions:
             command_queue.append(me.shipyard.spawn())
             next_turn_positions.append(me.shipyard.position)
@@ -181,8 +208,13 @@ while True:
                     continue
 
         ### Explorer harvests instead of moving ###
+        if current_ship_count == 1 or current_ship_count > 6 or game.turn_number > (constants.MAX_TURNS*.5):
+            full_hold_check = ship.halite_amount >= constants.MAX_HALITE * FULL_HOLD_PROPORTION
+        else: # Come home early to buy more ships.
+            full_hold_check = ship.halite_amount >= constants.SHIP_COST/current_ship_count*1.1
+            # TODO: Replace the 1.1 buffer above by calculating the cost to get home for each ship, regardless of individual holds, and send them all home?
         if ship_status[ship.id] == "exploring" or (ship_status[ship.id] == "harvesting" and sufficient_fuel):
-            if ship.halite_amount >= constants.MAX_HALITE * FULL_HOLD_PROPORTION and (game_map[ship.position].halite_amount < 500 or ship.halite_amount >= constants.MAX_HALITE *.95): # Holding too much, return
+            if full_hold_check and (game_map[ship.position].halite_amount < 500 or ship.halite_amount >= constants.MAX_HALITE *.95): # Holding too much, return
                 ship_status[ship.id] = "returning"
                 logging.info("Changing job to returning")
                 continue
@@ -194,6 +226,11 @@ while True:
                 ship_status[ship.id] = "exploring"
                 logging.info("Changing job to exploring")
                 continue
+
+        ### Returning ship harvests on the way home ###
+        #if ship_status[ship.id] == "returning" and game_map[ship.position].halite_amount > MIN_HALITE_IGNORED*2 and ship.halite_amount <= constants.MAX_HALITE - 30:
+        #    safe_move(ship, ship.position) # Harvest
+        #    continue
 
 
 
@@ -242,9 +279,12 @@ while True:
         ### Holding too much, return to nearest dropoff: ###
         #TODO: consider returning early if waiting to buy new ships and need cash
         elif ship_status[ship.id] == "returning": # Holding too much, return
+            #if ship_status[ship.id] == "returning" and game_map[ship.position].halite_amount > MIN_HALITE_IGNORED*2 and ship.halite_amount <= constants.MAX_HALITE - 30:
+            #    continue # Already given commend in previous loop.
             dropoff_position = get_nearest_dropoff_position(ship, me)
             if ship.position == dropoff_position: # Arrived home, send back out exploring
                 logging.info("Dropped off load at shipyard last turn, go out and explore!")
+                destination_list.pop(ship.id, None) # Clear ship's destination entry
                 ship_status[ship.id] = "exploring"
             else:
                 logging.info("Moving toward dropoff_position: {}.".format(dropoff_position))
@@ -254,6 +294,36 @@ while True:
         ### Send ship exploring/harvesting: ###
         if ship_status[ship.id] == "exploring":# and game_map[ship.position].halite_amount <= MIN_HALITE_IGNORED:
             logging.info("Exploring!")
+            #logging.info(constants.WIDTH)
+
+            if ship.id in destination_list:
+                destination = destination_list[ship.id]
+                if ship.position != destination:
+                    safe_move(ship, destination)
+                    continue
+                else:   # At destination, not enough Halite to harvest, so reset.
+                    destination_list.pop(ship.id, None) # Clear ship's destination entry
+
+            if ship.id not in destination_list:
+                ### Check what side of the map home is on, split map in half. ###
+                #if me.shipyard.position.x <= constants.WIDTH/2:
+                #    xrange = range(0, int(constants.WIDTH/2 + 1))
+                #else:
+                #    xrange = range(int(constants.WIDTH/2), constants.WIDTH + 1)
+                #yrange = range(constants.HEIGHT)
+
+                ### Search radii of 3,6,9 and 12 ###
+                for i in range(3,13,3):
+                    target_cell = scan_radius(ship, i)
+                    if target_cell:
+                        break
+                if target_cell:
+                    destination_list[ship.id] = target_cell
+                else: # No valuable cells within radius, move randomly. TODO: Do something better.
+                    target_cell = ship.position.directional_offset(random.choice([Direction.North, Direction.West, Direction.South, Direction.East])) # TODO: choose better here, adventure!.
+                safe_move(ship, target_cell)
+
+            '''
             # Find neighbouring cell with highest halite, otherwise random.
             highest_halite = 0
             target_cell = ship.position.directional_offset(random.choice([Direction.North, Direction.West, Direction.South, Direction.East])) # TODO: choose better here, adventure!.
@@ -267,6 +337,7 @@ while True:
             if highest_halite == 0:
                 logging.info("No halite in neighbouring cells, travelling randomly to {}.".format(target_cell))
             safe_move(ship, target_cell)
+            '''
             continue
 
     # Send your moves back to the game environment, ending this turn.
