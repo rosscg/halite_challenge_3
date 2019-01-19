@@ -38,7 +38,7 @@ game = hlt.Game()
 ship_status = {}
 destination_list = {}
 ship_history = {}
-next_turn_positions = []
+next_turn_positions = {}
 
 def update_ship_history(ship, destination):
     dropoff_position = get_nearest_dropoff_position(ship, me)
@@ -82,35 +82,38 @@ def get_nearest_dropoff_position(ship, me):
     return closest_dropoff
 
 def safe_move(ship, destination):
-    if ship.position == destination and destination not in next_turn_positions:    # Harvesting
+
+    others_positions = {x: next_turn_positions[x] for x in next_turn_positions if x not in [ship.id]}
+
+    if ship.position == destination and destination not in others_positions.values():    # Harvesting
         logging.info("Harvesting.")
-        next_turn_positions.append(ship.position)
+        next_turn_positions[ship.id]=ship.position
         command_queue.append(ship.stay_still())
         update_ship_history(ship, ship.position)
         return
     try:        # Valid, safe move detected
-        move = [dir_item for dir_item in game_map.get_unsafe_moves(ship.position, destination) if ship.position.directional_offset(dir_item) not in next_turn_positions][0] #TODO: Consider random.choice here, may need to reset seed.
+        move = [dir_item for dir_item in game_map.get_unsafe_moves(ship.position, destination) if ship.position.directional_offset(dir_item) not in next_turn_positions.values()][0] #TODO: Consider random.choice here, may need to reset seed.
         logging.info("Move plan: {}".format(ship.position.directional_offset(move)))
         logging.info("next_turn_positions list: {}".format(next_turn_positions))
             #TODO: try left or right if up/down direction takes ship farther from base due to tailgater.
-        next_turn_positions.append(ship.position.directional_offset(move))
+        next_turn_positions[ship.id]=ship.position.directional_offset(move)
         command_queue.append(ship.move(move))
         logging.info("Moving as desired to {}.".format(ship.position.directional_offset(move)))
         update_ship_history(ship, ship.position.directional_offset(move))
         return
     except:     # Can't make favourite move, harvest, get out of the way or wait in place.
-        if game_map[ship.position].halite_amount > MIN_HALITE_IGNORED/2 and ship.position not in next_turn_positions:
+        if game_map[ship.position].halite_amount > MIN_HALITE_IGNORED/2 and ship.position not in others_positions.values():
             logging.info("Can't move to {} as desired: Harvesting instead".format(destination))
-            next_turn_positions.append(ship.position)
+            next_turn_positions[ship.id]=ship.position
             command_queue.append(ship.stay_still())
             update_ship_history(ship, ship.position)
             return
         try:
-            pos = random.choice([pos_item for pos_item in ship.position.get_surrounding_cardinals() if pos_item not in next_turn_positions])
+            pos = random.choice([pos_item for pos_item in ship.position.get_surrounding_cardinals() if pos_item not in next_turn_positions.values()])
             #pos = [pos_item for pos_item in ship.position.get_surrounding_cardinals() if pos_item not in next_turn_positions][0]
             move = game_map.get_unsafe_moves(ship.position, pos)[0] #TODO: Consider random.choice here, may need to reset seed.
-            next_turn_positions.append(ship.position.directional_offset(move)) # Using directional_offset instead of pos variable to avoid random reseed
-            #next_turn_positions.append(pos) # Using directional_offset instead of pos variable to avoid random reseed
+            next_turn_positions[ship.id]=ship.position.directional_offset(move) # Using directional_offset instead of pos variable to avoid random reseed
+            #next_turn_positions[ship.id]=pos) # Using directional_offset instead of pos variable to avoid random reseed
             command_queue.append(ship.move(move))
             logging.info("Can't move to {} as desired: Random position found instead: {}.".format(destination, ship.position.directional_offset(move)))
             update_ship_history(ship, ship.position.directional_offset(move))
@@ -118,7 +121,7 @@ def safe_move(ship, destination):
         except Exception as e:     # No surrounding positions free
             logging.info("ERROR: {}".format(e))
             logging.info("No free positions, sitting still and hoping not to die")
-            next_turn_positions.append(ship.position)
+            next_turn_positions[ship.id]=ship.position
             command_queue.append(ship.stay_still())
             update_ship_history(ship, ship.position)
             return
@@ -137,7 +140,7 @@ while True:
     me = game.me
     game_map = game.game_map
     command_queue = []
-    next_turn_positions = []
+    #next_turn_positions = []
 
     # Remove dead ships from dictionary
     r = dict(ship_status)
@@ -162,12 +165,13 @@ while True:
     #expected_ship_value = (constants.MAX_TURNS-game.turn_number) * ship_income_per_turn
     #if expected_ship_value > constants.SHIP_COST and me.halite_amount >= constants.SHIP_COST:
 
-    if game.turn_number <= (constants.MAX_TURNS*.5) and me.halite_amount >= constants.SHIP_COST and current_ship_count < MAX_SHIPS:
-        if me.shipyard.position not in next_turn_positions:
-            command_queue.append(me.shipyard.spawn())
-            next_turn_positions.append(me.shipyard.position)
-            logging.info("Building a new turtle.")
-
+    if game.turn_number <= (constants.MAX_TURNS*.5) and me.halite_amount >= constants.SHIP_COST and current_ship_count < MAX_SHIPS and me.shipyard.position not in next_turn_positions.values():
+        command_queue.append(me.shipyard.spawn())
+        next_turn_positions[-1] = me.shipyard.position
+        logging.info("Building a new turtle.")
+    else:
+        next_turn_positions.pop(-1, None)
+    logging.info(next_turn_positions)
 
     ############################################
     ########## Initial Ship Commands ###########
@@ -190,7 +194,7 @@ while True:
             logging.info("Out of fuel, harvesting.")
             if not ship_status[ship.id] == "dockblock":
                 ship_status[ship.id] = "harvesting"
-            next_turn_positions.append(ship.position)
+            next_turn_positions[ship.id]=ship.position
             command_queue.append(ship.stay_still())
             continue
 
@@ -289,25 +293,25 @@ while True:
             try:
                 desired_direction = game_map.get_unsafe_moves(ship.position, dockblock_coords)[0]
             except: # Arrived at dock
-                next_turn_positions.append(ship.position)
+                next_turn_positions[ship.id]=ship.position
                 continue
             desired_pos = ship.position.directional_offset(desired_direction)
             # Check if desired_pos is threatened, checking this can neuter the bot so consider risking it.
             be_still = False
             #sufficient_fuel = ship.halite_amount >= game_map[ship.position].halite_amount / 10
             if (game_map[desired_pos].is_occupied and me.has_ship(game_map[desired_pos].ship.id) == False):
-                next_turn_positions.append(ship.position)
+                next_turn_positions[ship.id]=ship.position
                 command_queue.append(ship.stay_still()) # Wait for cell to clear.
                 continue
             for position in desired_pos.get_surrounding_cardinals():
                 cell = game_map[position]
                 if (cell.is_occupied and me.has_ship(cell.ship.id) == False): #cell.position != ship.position: # Enemy ship detected
-                    next_turn_positions.append(ship.position)
+                    next_turn_positions[ship.id]=ship.position
                     command_queue.append(ship.stay_still()) # Wait for cell to clear.
                     be_still = True
                     break
             if not be_still:
-                next_turn_positions.append(desired_pos)
+                next_turn_positions[ship.id]=desired_pos
                 command_queue.append(ship.move(desired_direction))
             continue
 
