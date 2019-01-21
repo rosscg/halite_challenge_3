@@ -8,7 +8,7 @@ All original content is stored in MyBot.py (and any other bot files used for tes
 ## Running:
 The bots can be run locally once the competition has ended on 22/01/19. See the Halite-README.md for instructions.
 
-##### TODO:
+## TODO:
 Key aspects not addressed due to time constraints are listed in the script header and include:
 * **Destination Choice** -- The most limiting current issue is turtles waiting behind harvesting turtles. When choosing a destination, consider evaluating the path to the destination and checking whether cells along the path have already been marked for harvest by a turtle in front of the deciding turtle (thus will cause a jam).
 * **Turtle spawn decision** -- currently spawns until halfway through the game without consideration for board value and expected return.
