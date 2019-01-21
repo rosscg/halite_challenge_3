@@ -3,14 +3,13 @@
 
 #TODO:
 # Watch enemy ships, evaluate and decide to hit.
-# Give bots a general direction to go if nothing good nearby
-# Judge value of harvest x2 vs move and harvest before moving.
 # Evaluate board state and E(R) of bot when spawning new ship
 # Consider sorting ships by value to prioritise.
 # Use random.choice() instead of first element of list for directions.
 # Use proper pathfinding to destination
-#
-# Consider a script with one efficient bot and the rest blocking the enemy shipyard
+# Iterate loop until most ships are happy
+# Go home instead of new destination if home is closer?
+
 
 # Import the Halite SDK, which will let you interact with the game.
 import hlt
@@ -29,8 +28,9 @@ import logging
 FULL_HOLD_PROPORTION = .9 # proportion of hold to fill before coming home
 HOMETIME_TRAVEL_BUFFER = 1.5
 MIN_HALITE_IGNORED = 50 #constants.MAX_HALITE / 10
-MAX_SHIPS = 24 # Stop building ships. This should realistically be adjusted based on map size or map value.
+#MAX_SHIPS = constants.WIDTH*.75 #24 # Stop building ships. This should realistically be adjusted based on map size or map value. Re-implemented below.
 DOCKBLOCK_STRAT = False # Sends one ship to block enemy home port in 2p game. Only effective on rudimentary bots using naive move.
+STOP_SPAWNING_AT_GAME_LENGTH = .5
 
 """ <<<Game Begin>>> """
 # This game object contains the initial game state.
@@ -39,6 +39,9 @@ ship_status = {}
 destination_list = {}
 ship_history = {}
 next_turn_positions = {}
+
+MAX_SHIPS = constants.WIDTH*.75 #24 # Stop building ships. TODO: This should realistically be adjusted based on map value.
+
 
 def update_ship_history(ship, destination):
     dropoff_position = get_nearest_dropoff_position(ship, me)
@@ -49,15 +52,14 @@ def update_ship_history(ship, destination):
         except:
             ship_history[ship.id] = load
 
-def scan_radius(ship, scan_range):
+def scan_radius(origin, scan_range):
     # TODO test whether this needs to be normalised?
-    xrange = range(ship.position.x - scan_range, ship.position.x + scan_range + 1)
-    yrange = range(ship.position.y - scan_range, ship.position.y + scan_range + 1)
-    #xrange = range(me.shipyard.position.x - scan_range, me.shipyard.position.x + scan_range + 1)
-    #yrange = range(me.shipyard.position.y - scan_range, me.shipyard.position.y + scan_range + 1)
+    xrange = range(origin.x - scan_range, origin.x + scan_range + 1)
+    yrange = range(origin.y - scan_range, origin.y + scan_range + 1)
     #logging.info("Scanning range: {}-{},{}-{}".format(ship.position.x - scan_range, ship.position.x - scan_range + 1, ship.position.y - scan_range, ship.position.y - scan_range + 1))
     highest_halite = MIN_HALITE_IGNORED*4
     candidate_cell = None
+    neighboured = False
     for x in xrange:    # TODO: consider doing this once a turn and ordering, then take first in list and pop.
         for y in yrange:
             cell = game_map[Position(x,y)]
@@ -65,9 +67,10 @@ def scan_radius(ship, scan_range):
                 # Ignore neighbours of mined cells.
                 for neighbour in cell.position.get_surrounding_cardinals():
                     if neighbour in destination_list:
-                        continue
-                candidate_cell = cell.position
-                highest_halite = cell.halite_amount
+                        neighboured = True
+                if neighboured == False:
+                    candidate_cell = cell.position
+                    highest_halite = cell.halite_amount
     return candidate_cell
 
 
@@ -82,6 +85,7 @@ def get_nearest_dropoff_position(ship, me):
     return closest_dropoff
 
 def safe_move(ship, destination):
+    #TODO: Currently safe_move only considers friendly ships. Consider super_safe_move method which estimates enemy moves too.
 
     others_positions = {x: next_turn_positions[x] for x in next_turn_positions if x not in [ship.id]}
 
@@ -140,14 +144,17 @@ while True:
     me = game.me
     game_map = game.game_map
     command_queue = []
-    #next_turn_positions = []
+    #next_turn_positions = []   # Ships currently manually resetting this after moving.
+                                # This is less efficient, as more tiles are blocked to early
+                                # ships, but prevents ships becoming penned-in and colliding.
+                                # TODO: Once happiness move iteration is implemented, this can be reverted.
 
     # Remove dead ships from dictionary
     r = dict(ship_status)
     for ship_key in ship_status:
         if ship_key not in [ x.id for x in me.get_ships() ]:
-            del r[ship_key]
-            next_turn_positions.pop(ship_key, None) #TODO: test
+            del r[ship_key]     # TODO: del vs pop?
+            next_turn_positions.pop(ship_key, None)
     ship_status = dict(r)
     logging.info(ship_status)
 
@@ -165,13 +172,18 @@ while True:
     #expected_ship_value = (constants.MAX_TURNS-game.turn_number) * ship_income_per_turn
     #if expected_ship_value > constants.SHIP_COST and me.halite_amount >= constants.SHIP_COST:
 
-    if game.turn_number <= (constants.MAX_TURNS*.5) and me.halite_amount >= constants.SHIP_COST and current_ship_count < MAX_SHIPS and me.shipyard.position not in next_turn_positions.values():
+    if game.turn_number <= (constants.MAX_TURNS*STOP_SPAWNING_AT_GAME_LENGTH) and me.halite_amount >= constants.SHIP_COST and current_ship_count < MAX_SHIPS and me.shipyard.position not in next_turn_positions.values():
         command_queue.append(me.shipyard.spawn())
+        # -1 ID used for shipyard 'ship id' when claiming tile.
         next_turn_positions[-1] = me.shipyard.position
         logging.info("Building a new turtle.")
     else:
         next_turn_positions.pop(-1, None)
     logging.info(next_turn_positions)
+
+    # TODO: Consider more robustly assigning ship roles then iterating by role,
+    # rather than current 3-loop iteration. This will support the hapiness iteration
+    # for exploring/returning.
 
     ############################################
     ########## Initial Ship Commands ###########
@@ -210,7 +222,7 @@ while True:
         if not sufficient_fuel: # Already harvesting from first pass.
             continue
 
-        # Check if enemy ship is close
+        #check(if enemy ship is close):
             # Compare halite cargo, if theirs is higher:
                 # Determine which direction they are moving, and collide/shepherd.
             # If self is higher, evade.
@@ -323,7 +335,7 @@ while True:
             dropoff_position = get_nearest_dropoff_position(ship, me)
             if ship.position == dropoff_position: # Arrived home, send back out exploring
                 logging.info("Dropped off load at shipyard last turn, go out and explore!")
-                destination_list.pop(ship.id, None) # Clear ship's destination entry
+                destination_list.pop(ship.id, None) # Clear ship's destination entry, should be redundant.
                 ship_status[ship.id] = "exploring"
             else:
                 logging.info("Moving toward dropoff_position: {}.".format(dropoff_position))
@@ -333,7 +345,6 @@ while True:
         ### Send ship exploring/harvesting: ###
         if ship_status[ship.id] == "exploring":# and game_map[ship.position].halite_amount <= MIN_HALITE_IGNORED:
             logging.info("Exploring!")
-            #logging.info(constants.WIDTH)
 
             if ship.id in destination_list:
                 destination = destination_list[ship.id]
@@ -351,11 +362,21 @@ while True:
                 #    xrange = range(int(constants.WIDTH/2), constants.WIDTH + 1)
                 #yrange = range(constants.HEIGHT)
 
-                ### Search radii of 3,6,9 and 12 ###
-                for i in range(3,13,3):
-                    target_cell = scan_radius(ship, i)
-                    if target_cell:
-                        break
+
+                target_cell = scan_radius(ship.position, 3) # Scan immediate vicinity
+                if not target_cell:                         # Otherwise search near shipyard
+                    ### Search radii of 3,6,9 and 12 ###
+                    #for i in range(3,13,3):
+                    for i in [3,16]: # TODO: choose max_range based on map size and turns_remaining
+                        target_cell = scan_radius(me.shipyard.position, i) # TODO: Use get_nearest_dropoff_position instead
+                        if target_cell:
+                            break
+
+                #for i in range(3,13,3): #TODO: Early testing suggests this algorithm is more effective:
+                #    target_cell = scan_radius(ship.position, i)
+                #    if target_cell:
+                #        break
+
                 if target_cell:
                     destination_list[ship.id] = target_cell
                 else: # No valuable cells within radius, move randomly. TODO: Do something better.
@@ -363,21 +384,21 @@ while True:
                     target_cell = ship.position.directional_offset(random.choice([Direction.North, Direction.West, Direction.South, Direction.East])) # TODO: choose better here, adventure!.
                 safe_move(ship, target_cell)
 
-            '''
+            ## Old, hyper-local explore method:
             # Find neighbouring cell with highest halite, otherwise random.
-            highest_halite = 0
-            target_cell = ship.position.directional_offset(random.choice([Direction.North, Direction.West, Direction.South, Direction.East])) # TODO: choose better here, adventure!.
-            for cell_pos in ship.position.get_surrounding_cardinals(): # return a list of the positions of each cardinal direction from the given position.
-                local_halite = game_map[cell_pos].halite_amount # return the halite at a given map location.
-                if cell_pos not in next_turn_positions and local_halite > highest_halite:
-                    highest_halite = local_halite
-                    if local_halite > MIN_HALITE_IGNORED:
-                        target_cell = cell_pos
-                    logging.info("Better halite ({}) detected nearby in cell {}".format(local_halite, target_cell))
-            if highest_halite == 0:
-                logging.info("No halite in neighbouring cells, travelling randomly to {}.".format(target_cell))
-            safe_move(ship, target_cell)
-            '''
+            #highest_halite = 0
+            #target_cell = ship.position.directional_offset(random.choice([Direction.North, Direction.West, Direction.South, Direction.East])) # TODO: choose better here, adventure!.
+            #for cell_pos in ship.position.get_surrounding_cardinals(): # return a list of the positions of each cardinal direction from the given position.
+            #    local_halite = game_map[cell_pos].halite_amount # return the halite at a given map location.
+            #    if cell_pos not in next_turn_positions and local_halite > highest_halite:
+            #        highest_halite = local_halite
+            #        if local_halite > MIN_HALITE_IGNORED:
+            #            target_cell = cell_pos
+            #        logging.info("Better halite ({}) detected nearby in cell {}".format(local_halite, target_cell))
+            #if highest_halite == 0:
+            #    logging.info("No halite in neighbouring cells, travelling randomly to {}.".format(target_cell))
+            #safe_move(ship, target_cell)
+
             continue
 
     # Send your moves back to the game environment, ending this turn.
