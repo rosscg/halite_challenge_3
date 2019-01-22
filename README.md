@@ -1,5 +1,5 @@
 # Halite Challenge 3
-Bot Submission for the 3rd *2 Sigma Halite Challenge* built during a hackathon event at Oxford University in Jan 2019.
+Bot Submission for the 3rd *Two Sigma Halite Challenge* built during a hackathon event at Oxford University in Jan 2019.
 
 The final submission was ec2652823a3399ca6e3246b7e794efd06317ca35, which reached top 10% of players.
 
